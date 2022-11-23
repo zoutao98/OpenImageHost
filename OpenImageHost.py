@@ -13,14 +13,15 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 '''
+import datetime
 import functools
 import json
 import os
+import pathlib
 import threading
-import pyperclip
-from PySide2.QtCore import QTimer
-from PySide2.QtGui import Qt
-from PySide2.QtWidgets import QApplication, QWidget, QLabel
+from PySide2.QtCore import QTimer, QByteArray, QBuffer, QIODevice
+from PySide2.QtGui import Qt, QImage
+from PySide2.QtWidgets import QApplication, QWidget, QLabel, QFileDialog
 from PySide2.QtWidgets import QStackedWidget
 from PySide2.QtWidgets import QHBoxLayout, QFormLayout, QLineEdit
 from PySide2.QtWidgets import QToolBar, QPushButton
@@ -69,8 +70,7 @@ class Conf():
     proxy = 'github.proxy'
 
     def __init__(self) -> None:
-        if not hasattr(self, '_conf'):
-            self._conf = {}
+        pass
     
     @property
     def conf(self):
@@ -82,6 +82,8 @@ class Conf():
         self.updateConf()
 
     def readConf(self):
+        if not hasattr(self, '_conf'):
+            self._conf = {}
         if not os.path.exists(self.confPath):
             os.makedirs(self.confPath)
         try:
@@ -193,11 +195,54 @@ class UploadWidget(QWidget):
         if repo == '' or fork == '' or token == '':
             NoticeWidget(self.nativeParentWidget(), self.tr('请先设置GitHub图床'))
             return
-        from GitHubFile import githubfile
-        
+        file = QFileDialog.getOpenFileName(self.nativeParentWidget(), self.tr('打开图片'), filter=self.tr('Image Files (*)'))
+        if file[0]:
+            from GitHubFile import githubfile
+            filePath = file[0]
+            content = githubfile.getContent(filePath)
+            filePath = pathlib.Path(filePath)
+            resp = githubfile.uploadFile(token, repo, filePath.name, content)
+            if resp.status_code == 200 or resp.status_code == 201:
+                respJson = json.loads(resp.text)
+                rawUrl = respJson['content']['download_url']
+                markdownExample = f'![]({rawUrl})'
+                
+                fastgitRawUrl = f'https://raw.fastgit.org/{repo}/{fork}/{filePath.name}'
+                markdownExample = f'![]({fastgitRawUrl})'
+                QApplication.clipboard().setText(markdownExample)
+                NoticeWidget(self.nativeParentWidget(), self.tr('已复制到剪切板'))
 
     def shear(self):
-        pass
+        clipboard = QApplication.clipboard()
+        clipdata = clipboard.mimeData()
+        if clipdata.hasImage():
+            img: QImage = clipdata.imageData()
+            ba = QByteArray()
+            buffer = QBuffer(ba)
+            buffer.open(QIODevice.WriteOnly)
+            img.save(buffer, 'PNG')
+            content = ba.toBase64().data().decode('utf-8')
+            print(type(content))
+            fileName = f'{datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")}.PNG'
+            repo = Conf().getConf(Conf.repo)
+            fork = Conf().getConf(Conf.fork)
+            token = Conf().getConf(Conf.token)
+            if repo == '' or fork == '' or token == '':
+                NoticeWidget(self.nativeParentWidget(), self.tr('请先设置GitHub图床'))
+                return
+            from GitHubFile import githubfile
+            resp = githubfile.uploadFile(token, repo, fileName, content)
+            if resp.status_code == 200 or resp.status_code == 201:
+                respJson = json.loads(resp.text)
+                rawUrl = respJson['content']['download_url']
+                markdownExample = f'![]({rawUrl})'
+                
+                fastgitRawUrl = f'https://raw.fastgit.org/{repo}/{fork}/{fileName}'
+                markdownExample = f'![]({fastgitRawUrl})'
+                QApplication.clipboard().setText(markdownExample)
+                NoticeWidget(self.nativeParentWidget(), self.tr('已复制到剪切板'))
+        else:
+            NoticeWidget(self.nativeParentWidget(), self.tr('剪切板似乎没有图片'))
 
 class AlbumWidget(QWidget):
 
