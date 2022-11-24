@@ -64,7 +64,7 @@ def uploadFile(token, user_repo, filename, content):
         "Authorization": f"Bearer {token}"
     }
     data = {
-        "message": "upload by OpenImageHost",
+        "message": "Create by OpenImageHost",
         "content": content,
     }
     response = requests.put(url=url, data=json.dumps(data), headers=(headers))
@@ -82,7 +82,7 @@ def updateFile(token, user_repo, filename, content, sha):
         "Authorization": f"Bearer {token}"
     }
     data = {
-        "message": "upload by OpenImageHost",
+        "message": "Update by OpenImageHost",
         "content": content,
         "sha": sha
     }

@@ -13,13 +13,15 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 '''
+import base64
 import datetime
 import functools
 import json
 import os
 import pathlib
 import threading
-from PySide2.QtCore import QTimer, QByteArray, QBuffer, QIODevice
+import time
+from PySide2.QtCore import QTimer, QByteArray, QBuffer, QIODevice, Signal
 from PySide2.QtGui import Qt, QImage
 from PySide2.QtWidgets import QApplication, QWidget, QLabel, QFileDialog
 from PySide2.QtWidgets import QStackedWidget
@@ -123,6 +125,79 @@ class Conf():
                     cls.readConf(cls)
         return cls._instance
 
+class PhotosConf():
+    _instance_lock = threading.Lock()
+    pcf = 'app.json'
+    
+    sha = ''
+    def __init__(self, *widget) -> None:
+        pass
+
+    @property
+    def conf(self):
+        return self._conf
+    
+    @conf.setter
+    def conf(self, value):
+        self._conf = value
+
+    def readConf(self):
+        if not hasattr(self, '_conf'):
+            self._conf = {}
+        def getPhotosConf():
+            repo = Conf().getConf(Conf.repo)
+            fork = Conf().getConf(Conf.fork)
+            token = Conf().getConf(Conf.token)
+            if repo == '' or fork == '' or token == '':
+                return
+            from GitHubFile import githubfile
+            # self._photo.photosTip.emit('相册')
+            resp = githubfile.getFile(token, repo, self.pcf)
+            if resp.status_code == 200 or resp.status_code == 201:
+                respjson = json.loads(resp.text)
+                self.sha = respjson['sha']
+                content = respjson['content']
+                getconf = base64.b64decode(content).decode('utf-8')
+                self.conf = (json.loads(getconf))
+                self._photo.photosTip.emit('相册同步成功')
+                self._photo.updatePhotos.emit()
+        task = threading.Thread(target=getPhotosConf)
+        task.daemon = True
+        task.start()
+
+    def append(self, data):
+        try:
+            self.conf['photos']
+            self.conf['photos'].append(data)
+        except:
+            self.conf['photos'] = []
+            self.conf['photos'].append(data)
+        def updateConf():
+            repo = Conf().getConf(Conf.repo)
+            fork = Conf().getConf(Conf.fork)
+            token = Conf().getConf(Conf.token)
+            if repo == '' or fork == '' or token == '':
+                self._photo.photosTip.emit('请先设置GitHub图床')
+                return
+            from GitHubFile import githubfile
+            resp = githubfile.updateFile(token, repo, self.pcf, base64.b64encode(json.dumps(self.conf).encode('utf-8')).decode('utf-8'), self.sha)
+            if resp.status_code == 200 or resp.status_code == 201:
+                respJson = json.loads(resp.text)
+                self.sha = respJson['content']['sha']
+                self._photo.updatePhotos.emit()
+        task = threading.Thread(target=updateConf)
+        task.daemon = True
+        task.start()
+
+    def __new__(cls, *args, **kwargs):
+        if not hasattr(cls, "_instance"):
+            with cls._instance_lock:
+                if not hasattr(cls, "_instance"):
+                    cls._instance = object.__new__(cls)
+                    cls._photo = args[0]
+                    cls.readConf(cls)
+        return cls._instance
+
 class SettingWidget(QWidget):
 
     def __init__(self) -> None:
@@ -183,6 +258,8 @@ class UploadWidget(QWidget):
         shearButton.setObjectName('shearButton')
         layout.addRow(uploadButton)
         layout.addRow(shearButton)
+        self.uploadPath = QLineEdit(placeholderText='path',)
+        layout.addRow(self.tr('文件夹'),self.uploadPath)
         self.setLayout(layout)
 
         uploadButton.clicked.connect(self.upload)
@@ -201,16 +278,25 @@ class UploadWidget(QWidget):
             filePath = file[0]
             content = githubfile.getContent(filePath)
             filePath = pathlib.Path(filePath)
-            resp = githubfile.uploadFile(token, repo, filePath.name, content)
+            fileName = filePath.name
+            if filePath != '':
+                fileName = f'{filePath}/{fileName}'
+            resp = githubfile.uploadFile(token, repo, fileName, content)
             if resp.status_code == 200 or resp.status_code == 201:
                 respJson = json.loads(resp.text)
                 rawUrl = respJson['content']['download_url']
                 markdownExample = f'![]({rawUrl})'
                 
-                fastgitRawUrl = f'https://raw.fastgit.org/{repo}/{fork}/{filePath.name}'
+                fastgitRawUrl = f'https://raw.fastgit.org/{repo}/{fork}/{fileName}'
                 markdownExample = f'![]({fastgitRawUrl})'
                 QApplication.clipboard().setText(markdownExample)
                 NoticeWidget(self.nativeParentWidget(), self.tr('已复制到剪切板'))
+                PhotosConf().append({
+                    'filename': fileName,
+                    'raw': rawUrl,
+                    'fast': fastgitRawUrl,
+                    'sha': respJson['content']['sha']
+                })
 
     def shear(self):
         clipboard = QApplication.clipboard()
@@ -222,8 +308,10 @@ class UploadWidget(QWidget):
             buffer.open(QIODevice.WriteOnly)
             img.save(buffer, 'PNG')
             content = ba.toBase64().data().decode('utf-8')
-            print(type(content))
             fileName = f'{datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")}.PNG'
+            filePath = self.uploadPath.text()
+            if filePath != '':
+                fileName = f'{filePath}/{fileName}'
             repo = Conf().getConf(Conf.repo)
             fork = Conf().getConf(Conf.fork)
             token = Conf().getConf(Conf.token)
@@ -241,13 +329,39 @@ class UploadWidget(QWidget):
                 markdownExample = f'![]({fastgitRawUrl})'
                 QApplication.clipboard().setText(markdownExample)
                 NoticeWidget(self.nativeParentWidget(), self.tr('已复制到剪切板'))
+                PhotosConf().append({
+                    'filename': fileName,
+                    'raw': rawUrl,
+                    'fast': fastgitRawUrl,
+                    'sha': respJson['content']['sha']
+                })
         else:
             NoticeWidget(self.nativeParentWidget(), self.tr('剪切板似乎没有图片'))
 
-class AlbumWidget(QWidget):
+
+class PhotosWidget(QWidget):
+
+    photosTip = Signal(str)
+    updatePhotos = Signal()
 
     def __init__(self) -> None:
         super().__init__()
+        PhotosConf(self)
+        self.photosTip.connect(self.tips)
+        self.updatePhotos.connect(self.updatePhoto)
+        
+
+    def tips(self, strings):
+        NoticeWidget(self.nativeParentWidget(), self.tr(strings))
+
+    def updatePhoto(self):
+        try:
+            PhotosConf().conf['photos']
+            for photo in PhotosConf().conf['photos']:
+                print(photo)
+        except:
+            return
+
 
 class OpenImageHost(QWidget):
     
@@ -276,7 +390,7 @@ class OpenImageHost(QWidget):
             elif(sideBarMenu == '设置'):
                 stackWidget = SettingWidget()
             elif(sideBarMenu == '相册'):
-                stackWidget = AlbumWidget()
+                stackWidget = PhotosWidget()
             else:
                 continue
 
