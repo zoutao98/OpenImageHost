@@ -279,8 +279,9 @@ class UploadWidget(QWidget):
             content = githubfile.getContent(filePath)
             filePath = pathlib.Path(filePath)
             fileName = filePath.name
-            if filePath != '':
-                fileName = f'{filePath}/{fileName}'
+            uploadPath = self.uploadPath.text()
+            if uploadPath != '':
+                fileName = f'{uploadPath}/{fileName}'
             resp = githubfile.uploadFile(token, repo, fileName, content)
             if resp.status_code == 200 or resp.status_code == 201:
                 respJson = json.loads(resp.text)
@@ -309,9 +310,9 @@ class UploadWidget(QWidget):
             img.save(buffer, 'PNG')
             content = ba.toBase64().data().decode('utf-8')
             fileName = f'{datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")}.PNG'
-            filePath = self.uploadPath.text()
-            if filePath != '':
-                fileName = f'{filePath}/{fileName}'
+            uploadPath = self.uploadPath.text()
+            if uploadPath != '':
+                fileName = f'{uploadPath}/{fileName}'
             repo = Conf().getConf(Conf.repo)
             fork = Conf().getConf(Conf.fork)
             token = Conf().getConf(Conf.token)
