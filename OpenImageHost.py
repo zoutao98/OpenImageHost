@@ -22,11 +22,13 @@ import pathlib
 import threading
 import time
 from PySide2.QtCore import QTimer, QByteArray, QBuffer, QIODevice, Signal
-from PySide2.QtGui import Qt, QImage
-from PySide2.QtWidgets import QApplication, QWidget, QLabel, QFileDialog
-from PySide2.QtWidgets import QStackedWidget
+from PySide2.QtGui import Qt, QImage, QStandardItemModel, QStandardItem, QPixmap, QMovie
+from PySide2.QtWidgets import QApplication, QWidget, QLabel, QFileDialog, QSizePolicy
+from PySide2.QtWidgets import QStackedWidget, QTreeView
 from PySide2.QtWidgets import QHBoxLayout, QFormLayout, QLineEdit
 from PySide2.QtWidgets import QToolBar, QPushButton
+
+import icon
 
 class NoticeWidget(QLabel):
     _parent = None
@@ -339,18 +341,68 @@ class UploadWidget(QWidget):
         else:
             NoticeWidget(self.nativeParentWidget(), self.tr('剪切板似乎没有图片'))
 
+class ImageWidget(QWidget):
+
+    loading = Signal()
+
+    def __init__(self, photo) -> None:
+        super().__init__()
+        self.photo = photo
+        layout = QFormLayout()
+        self.label= QLabel()
+        self.label.setFixedSize(64, 64)
+
+        opt = QToolBar()
+        markdown = QPushButton("Markdown")
+        opt.addWidget(markdown)
+        def markdownClip():
+            fastgitRawUrl = self.photo['fast']
+            markdownExample = f'![]({fastgitRawUrl})'
+            QApplication.clipboard().setText(markdownExample)
+            NoticeWidget(self.nativeParentWidget(), self.tr('已复制到剪切板'))
+        markdown.clicked.connect(markdownClip)
+        layout.addRow(self.label, opt)
+        self.setLayout(layout)
+        self.movie = QMovie(':/icon/loading.gif')
+        self.label.setMovie(self.movie)
+        self.movie.start()
+
+        task = threading.Thread(target=self.getPhoto)
+        task.daemon = True
+        task.start()
+        self.loading.connect(self.loadingStop)
+
+    def loadingStop(self):
+        self.movie.stop()
+        self.label.repaint()
+
+    
+    def getPhoto(self):
+        import requests
+        resp = requests.get(self.photo['fast'])
+        if resp.status_code == 200:
+            photo = QPixmap()
+            #photo.loadFromData(req.content, "JPG")
+            photo.loadFromData(resp.content)
+            photo = photo.scaled(self.label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.label.setPixmap(photo)
+            self.loading.emit()
+
 
 class PhotosWidget(QWidget):
 
     photosTip = Signal(str)
     updatePhotos = Signal()
+    photos = []
 
     def __init__(self) -> None:
         super().__init__()
         PhotosConf(self)
         self.photosTip.connect(self.tips)
         self.updatePhotos.connect(self.updatePhoto)
-        
+
+        self.formLayout = QFormLayout()
+        self.setLayout(self.formLayout)
 
     def tips(self, strings):
         NoticeWidget(self.nativeParentWidget(), self.tr(strings))
@@ -359,7 +411,11 @@ class PhotosWidget(QWidget):
         try:
             PhotosConf().conf['photos']
             for photo in PhotosConf().conf['photos']:
-                print(photo)
+                if photo not in self.photos:
+                    imageWidget = ImageWidget(photo)
+                    self.formLayout.addRow(imageWidget)
+                    self.photos.append(photo)
+                    self.repaint()
         except:
             return
 
@@ -407,6 +463,7 @@ class OpenImageHost(QWidget):
 if __name__ == '__main__':
     Conf()
     app = QApplication()
+    
     openImageHost = OpenImageHost()
     openImageHost.show()
     app.exec_()
