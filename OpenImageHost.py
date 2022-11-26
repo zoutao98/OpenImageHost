@@ -152,7 +152,7 @@ class PhotosConf():
             token = Conf().getConf(Conf.token)
             if repo == '' or fork == '' or token == '':
                 return
-            from GitHubFile import githubfile
+            import githubfile
             # self._photo.photosTip.emit('相册')
             resp = githubfile.getFile(token, repo, self.pcf)
             if resp.status_code == 200 or resp.status_code == 201:
@@ -163,6 +163,9 @@ class PhotosConf():
                 self.conf = (json.loads(getconf))
                 self._photo.photosTip.emit('相册同步成功')
                 self._photo.updatePhotos.emit()
+            else:
+                respjson = json.loads(resp.text)
+                self._photo.photosTip.emit(f'{resp.status_code}:{respjson["message"]}')
         task = threading.Thread(target=getPhotosConf)
         task.daemon = True
         task.start()
@@ -181,7 +184,7 @@ class PhotosConf():
             if repo == '' or fork == '' or token == '':
                 self._photo.photosTip.emit('请先设置GitHub图床')
                 return
-            from GitHubFile import githubfile
+            import githubfile
             resp = githubfile.updateFile(token, repo, self.pcf, base64.b64encode(json.dumps(self.conf).encode('utf-8')).decode('utf-8'), self.sha)
             if resp.status_code == 200 or resp.status_code == 201:
                 respJson = json.loads(resp.text)
@@ -276,7 +279,7 @@ class UploadWidget(QWidget):
             return
         file = QFileDialog.getOpenFileName(self.nativeParentWidget(), self.tr('打开图片'), filter=self.tr('Image Files (*)'))
         if file[0]:
-            from GitHubFile import githubfile
+            import githubfile
             filePath = file[0]
             content = githubfile.getContent(filePath)
             filePath = pathlib.Path(filePath)
@@ -321,7 +324,7 @@ class UploadWidget(QWidget):
             if repo == '' or fork == '' or token == '':
                 NoticeWidget(self.nativeParentWidget(), self.tr('请先设置GitHub图床'))
                 return
-            from GitHubFile import githubfile
+            import githubfile
             resp = githubfile.uploadFile(token, repo, fileName, content)
             if resp.status_code == 200 or resp.status_code == 201:
                 respJson = json.loads(resp.text)
